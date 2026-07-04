@@ -59,7 +59,11 @@ jobs:
           echo "fixture js"       > tmp_e2e_fixture/sample.js
           echo "fixture text"     > tmp_e2e_fixture/sample.txt
 
-          git add tmp_e2e_fixture
+          # -f because tmp_e2e_fixture/ is deliberately gitignored (see
+          # .gitignore) so it can never leak into a real commit by accident;
+          # this throwaway commit is the one intentional exception, and it's
+          # never pushed anywhere.
+          git add -f tmp_e2e_fixture
           git commit -q -m "test: throwaway self-test fixture commit (never pushed)"
 
       - name: Run the action against the synthetic fixture commit
