@@ -1,0 +1,100 @@
+name: 'diffonly-action'
+description: 'Get changed files between two refs using nothing but git and bash - no third-party JS dependency chain to compromise.'
+author: 'Async360'
+
+branding:
+  icon: 'git-branch'
+  color: 'gray-dark'
+
+inputs:
+  base-ref:
+    description: >
+      Git ref or SHA to diff against. Leave empty to auto-detect: the pull
+      request base SHA for pull_request/pull_request_target events, or the
+      previous pushed commit for push events (falling back to the empty
+      tree for a repository's very first commit).
+    required: false
+    default: ''
+  patterns:
+    description: >
+      Comma and/or newline separated list of glob-style filters, e.g.
+      "src/**,*.md". Each entry is its own independent group. Leave empty
+      to skip pattern filtering entirely. See README.md for the supported
+      glob syntax and the per-group output contract.
+    required: false
+    default: ''
+
+outputs:
+  all_changed_files:
+    description: 'Newline-separated list of every file changed between base-ref and the current head.'
+    value: ${{ steps.diff.outputs.all_changed_files }}
+  any_changed:
+    description: '"true" if any file changed at all, "false" otherwise. Independent of patterns.'
+    value: ${{ steps.diff.outputs.any_changed }}
+  pattern_matches:
+    description: 'JSON array of {pattern, changed, files} covering every group in "patterns", uncapped. Empty array if patterns was not set.'
+    value: ${{ steps.patterns.outputs.pattern_matches }}
+  pattern_1:
+    description: 'Group 1: the glob pattern as supplied.'
+    value: ${{ steps.patterns.outputs.pattern_1 }}
+  changed_1:
+    description: 'Group 1: "true" if any changed file matched, "false" otherwise.'
+    value: ${{ steps.patterns.outputs.changed_1 }}
+  files_1:
+    description: 'Group 1: newline-separated list of changed files that matched.'
+    value: ${{ steps.patterns.outputs.files_1 }}
+  pattern_2:
+    description: 'Group 2: the glob pattern as supplied.'
+    value: ${{ steps.patterns.outputs.pattern_2 }}
+  changed_2:
+    description: 'Group 2: "true" if any changed file matched, "false" otherwise.'
+    value: ${{ steps.patterns.outputs.changed_2 }}
+  files_2:
+    description: 'Group 2: newline-separated list of changed files that matched.'
+    value: ${{ steps.patterns.outputs.files_2 }}
+  pattern_3:
+    description: 'Group 3: the glob pattern as supplied.'
+    value: ${{ steps.patterns.outputs.pattern_3 }}
+  changed_3:
+    description: 'Group 3: "true" if any changed file matched, "false" otherwise.'
+    value: ${{ steps.patterns.outputs.changed_3 }}
+  files_3:
+    description: 'Group 3: newline-separated list of changed files that matched.'
+    value: ${{ steps.patterns.outputs.files_3 }}
+  pattern_4:
+    description: 'Group 4: the glob pattern as supplied.'
+    value: ${{ steps.patterns.outputs.pattern_4 }}
+  changed_4:
+    description: 'Group 4: "true" if any changed file matched, "false" otherwise.'
+    value: ${{ steps.patterns.outputs.changed_4 }}
+  files_4:
+    description: 'Group 4: newline-separated list of changed files that matched.'
+    value: ${{ steps.patterns.outputs.files_4 }}
+  pattern_5:
+    description: 'Group 5: the glob pattern as supplied.'
+    value: ${{ steps.patterns.outputs.pattern_5 }}
+  changed_5:
+    description: 'Group 5: "true" if any changed file matched, "false" otherwise.'
+    value: ${{ steps.patterns.outputs.changed_5 }}
+  files_5:
+    description: 'Group 5: newline-separated list of changed files that matched.'
+    value: ${{ steps.patterns.outputs.files_5 }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine changed files
+      id: diff
+      shell: bash
+      env:
+        BASE_REF_INPUT: ${{ inputs.base-ref }}
+      run: "${{ github.action_path }}/scripts/get-changed-files.sh"
+
+    - name: Apply pattern filters
+      id: patterns
+      if: inputs.patterns != ''
+      shell: bash
+      env:
+        PATTERNS_INPUT: ${{ inputs.patterns }}
+        CHANGED_FILES: ${{ steps.diff.outputs.all_changed_files }}
+      run: "${{ github.action_path }}/scripts/apply-patterns.sh"

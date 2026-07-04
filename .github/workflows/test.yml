@@ -1,0 +1,119 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Unit tests (filter-changed.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run test/run-tests.sh
+        run: ./test/run-tests.sh
+
+  self-test:
+    name: Self-test the composite action end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sanity check - run the action against the real triggering event
+        id: auto
+        uses: ./
+
+      - name: Assert auto-detected run produced well-formed output
+        shell: bash
+        env:
+          ANY_CHANGED: ${{ steps.auto.outputs.any_changed }}
+        run: |
+          set -euo pipefail
+          if [ "$ANY_CHANGED" != "true" ] && [ "$ANY_CHANGED" != "false" ]; then
+            echo "any_changed should be 'true' or 'false', got: '$ANY_CHANGED'"
+            exit 1
+          fi
+          echo "auto-detected any_changed=$ANY_CHANGED (well-formed)"
+
+      - name: Create a throwaway commit with known fixture files
+        id: fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.email "ci@example.com"
+          git config user.name "diffonly-action CI"
+
+          base_sha="$(git rev-parse HEAD)"
+          echo "base_sha=${base_sha}" >> "$GITHUB_OUTPUT"
+
+          mkdir -p tmp_e2e_fixture
+          echo "fixture markdown" > tmp_e2e_fixture/sample.md
+          echo "fixture js"       > tmp_e2e_fixture/sample.js
+          echo "fixture text"     > tmp_e2e_fixture/sample.txt
+
+          git add tmp_e2e_fixture
+          git commit -q -m "test: throwaway self-test fixture commit (never pushed)"
+
+      - name: Run the action against the synthetic fixture commit
+        id: deterministic
+        uses: ./
+        with:
+          base-ref: ${{ steps.fixture.outputs.base_sha }}
+          patterns: |
+            tmp_e2e_fixture/*.md
+            tmp_e2e_fixture/*.js
+            tmp_e2e_fixture/*.yaml
+
+      - name: Assert deterministic outputs match expectations
+        shell: bash
+        env:
+          ANY_CHANGED: ${{ steps.deterministic.outputs.any_changed }}
+          ALL_FILES: ${{ steps.deterministic.outputs.all_changed_files }}
+          CHANGED_1: ${{ steps.deterministic.outputs.changed_1 }}
+          CHANGED_2: ${{ steps.deterministic.outputs.changed_2 }}
+          CHANGED_3: ${{ steps.deterministic.outputs.changed_3 }}
+          FILES_1: ${{ steps.deterministic.outputs.files_1 }}
+          FILES_2: ${{ steps.deterministic.outputs.files_2 }}
+          MATCHES_JSON: ${{ steps.deterministic.outputs.pattern_matches }}
+        run: |
+          set -euo pipefail
+          fail=0
+
+          check() {
+            local desc="$1" expected="$2" actual="$3"
+            if [ "$expected" = "$actual" ]; then
+              echo "ok - $desc"
+            else
+              echo "FAIL - $desc (expected '$expected', got '$actual')"
+              fail=1
+            fi
+          }
+
+          check "any_changed is true" "true" "$ANY_CHANGED"
+          check "*.md group matched" "true" "$CHANGED_1"
+          check "*.js group matched" "true" "$CHANGED_2"
+          check "*.yaml group did not match" "false" "$CHANGED_3"
+          check "*.md group file list" "tmp_e2e_fixture/sample.md" "$FILES_1"
+          check "*.js group file list" "tmp_e2e_fixture/sample.js" "$FILES_2"
+
+          echo "$ALL_FILES" | grep -qxF "tmp_e2e_fixture/sample.md" || { echo "FAIL - all_changed_files missing sample.md"; fail=1; }
+          echo "$ALL_FILES" | grep -qxF "tmp_e2e_fixture/sample.js" || { echo "FAIL - all_changed_files missing sample.js"; fail=1; }
+          echo "$ALL_FILES" | grep -qxF "tmp_e2e_fixture/sample.txt" || { echo "FAIL - all_changed_files missing sample.txt"; fail=1; }
+
+          echo "$MATCHES_JSON" | jq -e 'length == 3' >/dev/null || { echo "FAIL - pattern_matches should have 3 entries"; fail=1; }
+          echo "$MATCHES_JSON" | jq -e '.[0].changed == true' >/dev/null || { echo "FAIL - pattern_matches[0].changed should be true"; fail=1; }
+          echo "$MATCHES_JSON" | jq -e '.[2].changed == false' >/dev/null || { echo "FAIL - pattern_matches[2].changed should be false"; fail=1; }
+
+          if [ "$fail" -ne 0 ]; then
+            echo "Self-test FAILED"
+            exit 1
+          fi
+          echo "Self-test PASSED"
